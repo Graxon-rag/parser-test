@@ -133,3 +133,8 @@ fastembed_cache/
 
 # Test Data
 test_documents/
+test_data/
+
+# Output
+output/
+outputs/
