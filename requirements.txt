@@ -12,6 +12,7 @@ dataclasses-json==0.6.7
 datalab-python-sdk==0.5.0
 deepgram-sdk==7.4.0
 distro==1.9.0
+elevenlabs==2.57.0
 et_xmlfile==2.0.0
 eval_type_backport==0.4.0
 frozenlist==1.8.0
