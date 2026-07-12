@@ -9,6 +9,11 @@ venv/
 .env.local
 
 
+# Temp
+temp/
+tmp/
+
+
 !data/.gitkeep
 chroma*/
 **/__pycache__/
