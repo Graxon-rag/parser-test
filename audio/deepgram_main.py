@@ -19,6 +19,7 @@ async def main():
             model="nova-3",
             smart_format=True,
             diarize=True,       # Identifies different speakers (0, 1, 2, etc.)
+            utterances=True     # Groups the transcript logically by speaker changes
         )
 
         output_path = Path(f"/home/avvk/Graxon/Graxon/parser/output/deepgram/{audio_file_path.stem}.json")
