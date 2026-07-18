@@ -1,5 +1,7 @@
+from .model import Transcript, Utterance, Word
 from dotenv import load_dotenv
 from pathlib import Path
+from typing import List
 import assemblyai as aai
 import asyncio
 import json
@@ -13,7 +15,7 @@ async def main():
 
     audio_file_path = Path("/home/avvk/Graxon/Graxon/parser/test_data/test_recording.m4a")
 
-    config = aai.TranscriptionConfig(speaker_labels=True, language_detection=True, speech_model=aai.SpeechModel.universal)
+    config = aai.TranscriptionConfig(speaker_labels=True, language_detection=True)
     transcriber = aai.Transcriber()
 
     future = transcriber.transcribe_async(
@@ -37,5 +39,40 @@ async def main():
 
     print(f"Assembly transcription saved to {output_path}")
 
+    if transcript.utterances is None:
+        print("No utterances found in the transcript.")
+        return
+
+    utterances: List[Utterance] = []
+    for utterance in transcript.utterances:
+        words: List[Word] = []
+        for word in utterance.words:
+            words.append(Word(
+                text=word.text,
+                start=word.start,
+                end=word.end,
+                confidence=word.confidence,
+                speaker=word.speaker,
+            ))
+
+        utterances.append(Utterance(
+            text=utterance.text,
+            start=utterance.start,
+            end=utterance.end,
+            speaker=utterance.speaker or None,
+            confidence=utterance.confidence,
+            words=words,
+        ))
+
+    return Transcript(
+        provider="assemblyai",
+        utterances=utterances,
+        language=transcript.language_code,
+        source_file=str(audio_file_path),
+    )
+
 if __name__ == "__main__":
-    asyncio.run(main())
+    result = asyncio.run(main())
+    if result is None:
+        exit(1)
+    print(result.model_dump_json())
