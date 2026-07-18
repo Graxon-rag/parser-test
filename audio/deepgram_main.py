@@ -69,7 +69,7 @@ async def main():
                         ))
 
                     if current_words:
-                        final_utterances.append(create_utterance(current_words, current_speaker or "N/A"))
+                        final_utterances.append(create_utterance(current_words, current_speaker or "unknown"))
 
         return Transcript(
             provider="deepgram",

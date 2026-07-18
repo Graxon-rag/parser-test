@@ -69,6 +69,7 @@ async def main():
         utterances=utterances,
         language=transcript.language_code,
         source_file=str(audio_file_path),
+        duration=transcript.audio_duration
     )
 
 if __name__ == "__main__":

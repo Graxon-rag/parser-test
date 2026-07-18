@@ -5,8 +5,8 @@ from pydantic import BaseModel, Field
 class Word(BaseModel):
     """A single word/token, normalized across providers."""
     text: str
-    start: float  # seconds
-    end: float  # seconds
+    start: float | None = None  # seconds
+    end: float | None = None  # seconds
     confidence: Optional[float] = None  # normalized to 0-1 where possible
     speaker: Optional[str] = None
     raw: Optional[dict] = None  # original provider fields for this word (logprob, etc.)
@@ -15,8 +15,8 @@ class Word(BaseModel):
 class Utterance(BaseModel):
     """One speaker turn / sentence. This is the atomic chunking unit."""
     text: str
-    start: float  # seconds
-    end: float  # seconds
+    start: float | None = None  # seconds
+    end: float | None = None  # seconds
     speaker: str | None = None  # always coerced to str, e.g. "0", "A", "speaker_0" -> pick one convention
     confidence: Optional[float] = None
     words: List[Word] = Field(default_factory=list)  # empty if provider has no word-level data
