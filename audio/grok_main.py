@@ -1,6 +1,8 @@
+from .model import Transcript, Utterance, Word
 from dotenv import load_dotenv
-from pathlib import Path
 from groq import AsyncGroq
+from pathlib import Path
+from typing import List
 import asyncio
 import os
 
@@ -33,7 +35,38 @@ async def main():
     output_path = output_dir / f"{audio_file_path.stem}.json"
     output_path.write_bytes(translation.model_dump_json().encode("utf-8"))
 
+    final_utterances: List[Utterance] = []
     print(f"Grok transcription saved to {output_path}")
 
+    if isinstance(translation, dict):
+        segments = translation.get("segments", [])
+        duration = translation.get("duration", None)
+    else:
+        segments = getattr(translation, "segments", [])
+        duration = getattr(translation, "duration", None)
+
+    for seg in segments:
+        # If seg is a dictionary (which it usually is for verbose_json)
+        if isinstance(seg, dict):
+            text = seg.get("text", "")
+            start = seg.get("start", 0.0)
+            end = seg.get("end", 0.0)
+            confidence = seg.get("no_speech_prob", None)
+        # If seg is an object
+        else:
+            text = getattr(seg, "text", "")
+            start = getattr(seg, "start", 0.0)
+            end = getattr(seg, "end", 0.0)
+            confidence = getattr(seg, "no_speech_prob", None)
+
+        utt = Utterance(text=text, start=start, end=end, confidence=confidence)
+        final_utterances.append(utt)
+
+    transcript = Transcript(utterances=final_utterances, provider="whisper", duration=duration, source_file=str(audio_file_path))
+
+    return transcript
 if __name__ == "__main__":
-    asyncio.run(main())
+    result = asyncio.run(main())
+    if result is None:
+        exit(1)
+    print(result.model_dump_json())
