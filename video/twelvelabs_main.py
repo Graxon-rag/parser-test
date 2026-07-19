@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import List, Tuple, Optional, Dict
 from pydub import AudioSegment
 from langchain_core.documents import Document
+import subprocess
 from twelvelabs import AsyncTwelveLabs
 from twelvelabs.types import (
     AsyncResponseFormat,
@@ -216,9 +217,21 @@ class TwelveLabsProcessor:
     # Level 1 — Video slicing with pydub
     # -------------------------------------------------------------------------
 
+    def _get_video_duration(self, file_path: Path) -> float:
+        """Uses ffprobe to get the exact duration of the video in seconds."""
+        cmd = [
+            "ffprobe",
+            "-v", "error",
+            "-show_entries", "format=duration",
+            "-of", "default=noprint_wrappers=1:nokey=1",
+            str(file_path)
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        return float(result.stdout.strip())
+
     def _slice_video(self) -> Tuple[Path, float, float, float, bool]:
         """
-        Loads full video, extracts the slice for this file_chunk_number.
+        Loads full video, extracts the slice for this file_chunk_number using ffmpeg.
 
         Slice = [core_start - overlap : core_end + overlap]
           → core window: 10 min of actual content to index
@@ -229,38 +242,48 @@ class TwelveLabsProcessor:
 
         Returns: (slice_path, core_start_sec, core_end_sec, offset_sec, is_last)
         """
-        video = AudioSegment.from_file(str(self.file_path))
-        total_ms = len(video)
+        total_sec = self._get_video_duration(self.file_path)
 
         # Core window in original file
-        core_start_ms = self.file_chunk_number * self.chunk_duration_ms
-        core_end_ms = min(core_start_ms + self.chunk_duration_ms, total_ms)
+        core_start_sec = self.file_chunk_number * self.chunk_duration_sec
+        core_end_sec = min(core_start_sec + self.chunk_duration_sec, total_sec)
 
-        if core_start_ms >= total_ms:
+        if core_start_sec >= total_sec:
             raise ValueError(
                 f"file_chunk_number={self.file_chunk_number} is out of range. "
-                f"Video duration: {total_ms / 1000:.1f}s"
+                f"Video duration: {total_sec:.1f}s"
             )
 
         # Slice with overlap
-        slice_start_ms = max(0, core_start_ms - self.overlap_ms)
-        slice_end_ms = min(total_ms, core_end_ms + self.overlap_ms)
+        slice_start_sec = max(0, core_start_sec - self.overlap_sec)
+        slice_end_sec = min(total_sec, core_end_sec + self.overlap_sec)
+        slice_duration_sec = slice_end_sec - slice_start_sec
 
-        is_last = core_end_ms >= total_ms
-        video_slice = video[slice_start_ms:slice_end_ms]
+        is_last = core_end_sec >= total_sec
 
-        # Save as mp4 — preserve video format
         slice_path = TEMP_DIR / f"{self.file_path.stem}_chunk_{self.file_chunk_number}.mp4"
-        video_slice.export(str(slice_path), format="mp4")
+
+        # Fast-seek by placing -ss before -i. 
+        # -c copy prevents re-encoding and preserves both video/audio streams losslessly.
+        cmd = [
+            "ffmpeg", "-y",
+            "-ss", str(slice_start_sec),
+            "-i", str(self.file_path),
+            "-t", str(slice_duration_sec),
+            "-c", "copy",
+            str(slice_path)
+        ]
+
+        subprocess.run(cmd, capture_output=True, check=True)
 
         # offset_sec = where core_start sits in the original file
         # Used to convert slice-relative timestamps → original-file timestamps
-        offset_sec = core_start_ms / 1000
+        offset_sec = core_start_sec
 
         return (
             slice_path,
-            core_start_ms / 1000,
-            core_end_ms / 1000,
+            core_start_sec,
+            core_end_sec,
             offset_sec,
             is_last,
         )
@@ -289,20 +312,30 @@ class TwelveLabsProcessor:
             max_retries=self.max_retries,
             progress_callback=progress_callback,
         )
-        print(f"\nChunk {self.file_chunk_number} uploaded. Asset ID: {result.asset_id}")
+        asset_id = result.asset_id
+        print(f"\nChunk {self.file_chunk_number} uploaded. Asset ID: {asset_id}")
 
-        # Wait for asset to be ready before creating analysis tasks
+        # Brief delay — give TwelveLabs a moment to register the asset
+        # before polling, otherwise retrieve can 404 immediately after upload
+        await asyncio.sleep(3)
+
+        # Poll until asset is ready — use asset_id from UploadResult directly
+        # (Asset.id is aliased from _id and may deserialize as None)
         while True:
-            asset = await self.client.assets.retrieve(result.asset_id)
+            asset = await self.client.assets.retrieve(asset_id)
             if asset.status == "ready":
+                print(f"Asset {asset_id} ready.")
                 break
             if asset.status == "failed":
+                error = getattr(asset, "error", None)
                 raise RuntimeError(
-                    f"Asset processing failed for chunk {self.file_chunk_number}: {asset.id}"
+                    f"Asset processing failed for chunk {self.file_chunk_number}: "
+                    f"asset_id={asset_id}, error={error}"
                 )
+            print(f"  Asset status: {asset.status} — waiting...")
             await asyncio.sleep(self.poll_interval)
 
-        return result.asset_id
+        return asset_id
 
     # -------------------------------------------------------------------------
     # Analysis tasks
@@ -617,6 +650,6 @@ async def process_video(file_path: str):
 
 
 if __name__ == "__main__":
-    VIDEO_PATH = "/home/avvk/Graxon/Graxon/parser/test_data/IMG_3509.MOV"
-    # VIDEO_PATH = "/home/avvk/Graxon/Graxon/parser/test_data/youtube_postcast_video.mp4"
+    # VIDEO_PATH = "/home/avvk/Graxon/Graxon/parser/test_data/IMG_3509.MOV"
+    VIDEO_PATH = "/home/avvk/Graxon/Graxon/parser/test_data/youtube_postcast_video.mp4"
     asyncio.run(process_video(VIDEO_PATH))
